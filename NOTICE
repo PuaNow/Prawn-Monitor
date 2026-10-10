@@ -1,0 +1,14 @@
+Prawn Monitor is an original project. Its tank-node and local-hub layout is
+inspired by Sync Tank, an MIT-licensed aquarium workshop:
+
+  Sync Tank — https://github.com/looseleif/sync-tank
+  Copyright holders as named in that repository
+  License: MIT
+
+Prawn Monitor does not copy Sync Tank source code. It does not include Sync
+Tank's spatial model, robotic camera rigs, or optional cloud image analysis.
+
+AMADEUS (https://amadeus.jpmyrmecol.com/, https://github.com/jpmyrmecol/AMADEUS)
+is a separate program under the GNU Affero General Public License v3.0 only.
+Prawn Monitor does not vendor, link, or distribute AMADEUS. It records fixed
+overhead clips and imports tracking CSV files that AMADEUS writes.

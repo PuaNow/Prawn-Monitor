@@ -1,0 +1,42 @@
+{
+  "host": "0.0.0.0",
+  "port": 8080,
+  "data_dir": "/var/lib/prawn-monitor/hub",
+  "site": "NorCal Premier Prawn",
+  "place": "Ukiah, CA",
+  "timezone": "America/Los_Angeles",
+  "poll_interval_s": 15,
+  "timeout_s": 10,
+  "public_url": "http://192.168.1.10:8080",
+  "tanks": [
+    {
+      "id": "nursery",
+      "name": "Nursery",
+      "volume_gal": 225,
+      "species": "Litopenaeus vannamei",
+      "node_url": "http://192.168.1.21:8090",
+      "mm_per_pixel": 0.4
+    }
+  ],
+  "notify": {
+    "smtp": {
+      "host": "",
+      "port": 587,
+      "starttls": true,
+      "username": "",
+      "password": "",
+      "from": "prawn-monitor@localhost",
+      "to": ["you@example.com"]
+    },
+    "sms": {
+      "mode": "email_gateway",
+      "to": ["15555550123@vtext.com"],
+      "twilio": {
+        "account_sid": "",
+        "auth_token": "",
+        "from_number": "",
+        "to": []
+      }
+    }
+  }
+}

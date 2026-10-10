@@ -1,0 +1,56 @@
+{
+  "host": "0.0.0.0",
+  "port": 8090,
+  "data_dir": "/var/lib/prawn-monitor/nursery",
+  "tank": {
+    "id": "nursery",
+    "name": "Nursery",
+    "volume_gal": 225,
+    "species": "Litopenaeus vannamei",
+    "site": "NorCal Premier Prawn, Ukiah CA"
+  },
+  "sensors": {
+    "mode": "hardware",
+    "ads1115": {"bus": 1, "address": 72},
+    "dissolved_oxygen": {
+      "driver": "dfrobot_ads1115",
+      "channel": 0,
+      "calibration": {"v_zero": 0.02, "v_sat": 2.1}
+    },
+    "ph": {
+      "driver": "dfrobot_ads1115",
+      "channel": 1,
+      "calibration": {"v_ph7": 1.5, "v_ph4": 2.05}
+    },
+    "temperature": {"driver": "ds18b20"},
+    "water_level": {
+      "low_cm": 25,
+      "high_cm": 55,
+      "floats": {"enabled": true, "low_pin": 17, "high_pin": 27},
+      "ultrasonic": {
+        "enabled": true,
+        "trigger_pin": 23,
+        "echo_pin": 24,
+        "mount_height_cm": 80
+      }
+    }
+  },
+  "camera": {
+    "id": "overhead",
+    "driver": "usb",
+    "device": 0,
+    "width": 1280,
+    "height": 720,
+    "fps": 15,
+    "mm_per_pixel": 0.4,
+    "exposure_us": 8000,
+    "exposure": 100
+  },
+  "recording": {
+    "enabled": true,
+    "times": ["08:00", "16:00"],
+    "duration_s": 180,
+    "timezone": "America/Los_Angeles"
+  },
+  "compensation": {"salinity_ppt": 20, "pressure_kpa": 99.0}
+}
