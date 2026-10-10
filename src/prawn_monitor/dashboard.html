@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prawn Monitor</title>
+<style>
+  :root {
+    --bg: #efe6d6;
+    --ink: #1c1915;
+    --card: #fffdf8;
+    --line: #ddcfc0;
+    --teal: #0c5c5c;
+    --teal-ink: #083f3f;
+    --ok: #3f6b2a;
+    --ok-bg: #e5f0dc;
+    --warn: #8a5a00;
+    --warn-bg: #f8ecd4;
+    --bad: #8f1d3a;
+    --bad-bg: #f8e4ea;
+    --muted: #6d645b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    padding-bottom: 76px;
+  }
+  header {
+    padding: 16px 16px 8px;
+  }
+  h1 { font-size: 1.45rem; margin: 0; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin: 2px 0 0; font-size: 0.92rem; }
+  #banner {
+    margin: 8px 16px 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--bad);
+    color: white;
+    font-weight: 650;
+  }
+  #banner[hidden] { display: none; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 12px 16px 4px; }
+  .chips button, button, .tabs button {
+    font: inherit;
+    color: inherit;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 12px;
+    min-height: 44px;
+  }
+  .chips button[aria-pressed="true"] { background: var(--teal); color: white; border-color: var(--teal); }
+  main { padding: 8px 16px 16px; max-width: 880px; margin: 0 auto; }
+  section[hidden] { display: none; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px;
+  }
+  .card h2 { margin: 0; font-size: 0.78rem; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+  .value { font-size: 2rem; font-variant-numeric: tabular-nums; margin: 6px 0 0; line-height: 1; }
+  .unit { font-size: 0.95rem; color: var(--muted); }
+  .state { display: inline-block; margin-top: 8px; padding: 2px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; }
+  .state.ok { background: var(--ok-bg); color: var(--ok); }
+  .state.warning { background: var(--warn-bg); color: var(--warn); }
+  .state.critical { background: var(--bad-bg); color: var(--bad); }
+  .state.offline { background: #ece7e1; color: var(--muted); }
+  .wide { grid-column: 1 / -1; }
+  label { display: block; font-size: 0.85rem; margin: 10px 0 4px; }
+  input, select, textarea {
+    width: 100%;
+    font: inherit;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: white;
+    min-height: 44px;
+  }
+  textarea { min-height: 72px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row > * { flex: 1; }
+  form button, .primary {
+    background: var(--teal);
+    color: white;
+    border-color: var(--teal);
+    width: 100%;
+    margin-top: 12px;
+    font-weight: 650;
+  }
+  .hint { color: var(--muted); font-size: 0.82rem; margin: 6px 0 0; }
+  svg.chart { width: 100%; height: 150px; background: #f7f3ec; border-radius: 10px; }
+  .alert {
+    border-left: 4px solid var(--warn);
+    margin-bottom: 10px;
+  }
+  .alert.critical { border-left-color: var(--bad); }
+  .alert p { margin: 6px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  nav.tabs {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; background: var(--card); border-top: 1px solid var(--line);
+    padding: 4px;
+    z-index: 2;
+  }
+  nav.tabs button {
+    flex: 1; border: 0; border-radius: 10px; background: transparent;
+    padding: 6px 2px; min-height: 48px; font-size: 0.72rem;
+  }
+  nav.tabs button[aria-pressed="true"] { background: var(--teal); color: white; }
+  img.shot { width: 100%; border-radius: 12px; background: #123; min-height: 160px; }
+  .clip { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  details { margin-top: 12px; }
+  .ranges button[aria-pressed="true"] { background: var(--teal); color: white; border-color: var(--teal); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Prawn Monitor</h1>
+  <p class="sub" id="site-line">Local tank hub</p>
+</header>
+<div id="banner" hidden></div>
+<div class="chips" id="tanks"></div>
+<main>
+  <section id="view-now">
+    <div class="grid" id="now-grid"></div>
+    <p class="hint" id="now-meta"></p>
+    <button class="primary" id="poll-now" type="button">Poll nodes now</button>
+  </section>
+  <section id="view-history" hidden>
+    <div class="row ranges" id="ranges"></div>
+    <div class="row" id="custom-range" hidden>
+      <div><label>From<input type="datetime-local" id="from"></label></div>
+      <div><label>To<input type="datetime-local" id="to"></label></div>
+    </div>
+    <div id="charts"></div>
+  </section>
+  <section id="view-camera" hidden>
+    <div class="card">
+      <h2>Overhead camera</h2>
+      <p class="hint">Snapshot refresh works on phones. The live stream is the MJPEG feed from the tank Pi.</p>
+      <img class="shot" id="shot" alt="Latest overhead snapshot">
+      <div class="row">
+        <button type="button" id="live">Live stream</button>
+        <button type="button" id="stills">Snapshots</button>
+      </div>
+      <label>Clip length (seconds)<input id="clip-seconds" type="number" min="1" max="600" value="10"></label>
+      <button class="primary" id="record" type="button">Record fixed-exposure clip</button>
+      <p class="hint" id="record-status"></p>
+      <div id="clips"></div>
+    </div>
+  </section>
+  <section id="view-tests" hidden>
+    <form class="card" id="kit-form">
+      <h2>Test kit</h2>
+      <p class="hint">TAN, nitrite, nitrate, and alkalinity are not read by the probes. Enter the kit result for the selected tank. Alkalinity is mg/L as CaCO3 (1 dKH ≈ 17.9 mg/L).</p>
+      <label>TAN mg/L<input name="tan_mg_l" inputmode="decimal" step="any" min="0"></label>
+      <label>Nitrite mg/L<input name="nitrite_mg_l" inputmode="decimal" step="any" min="0"></label>
+      <label>Nitrate mg/L<input name="nitrate_mg_l" inputmode="decimal" step="any" min="0"></label>
+      <label>Alkalinity mg/L as CaCO3<input name="alkalinity_mg_l" inputmode="decimal" step="any" min="0"></label>
+      <label>Salinity ppt<input name="salinity_ppt" inputmode="decimal" step="any" min="0"></label>
+      <label>Notes<textarea name="notes"></textarea></label>
+      <button type="submit">Save test</button>
+      <p class="hint" id="kit-status"></p>
+    </form>
+    <div class="card" style="margin-top:10px">
+      <h2>Recent tests</h2>
+      <div id="kit-log"></div>
+    </div>
+  </section>
+  <section id="view-alerts" hidden>
+    <div id="alert-list"></div>
+    <details class="card">
+      <summary>Thresholds for this tank</summary>
+      <form id="threshold-form">
+        <div class="row">
+          <div><label>DO warn below<input name="do_warn" inputmode="decimal"></label></div>
+          <div><label>DO critical below<input name="do_critical" inputmode="decimal"></label></div>
+        </div>
+        <div class="row">
+          <div><label>Temp low F<input name="temp_low" inputmode="decimal"></label></div>
+          <div><label>Temp high F<input name="temp_high" inputmode="decimal"></label></div>
+        </div>
+        <label>Temp swing warn above F / day<input name="temp_swing" inputmode="decimal"></label>
+        <div class="row">
+          <div><label>pH low<input name="ph_low" inputmode="decimal"></label></div>
+          <div><label>pH high<input name="ph_high" inputmode="decimal"></label></div>
+        </div>
+        <div class="row">
+          <div><label>TAN warn above<input name="tan_warn" inputmode="decimal"></label></div>
+          <div><label>TAN critical above<input name="tan_critical" inputmode="decimal"></label></div>
+        </div>
+        <label>Nitrite warn above<input name="nitrite" inputmode="decimal"></label>
+        <label>Nitrate warn above<input name="nitrate" inputmode="decimal"></label>
+        <label>Alkalinity warn below<input name="alk" inputmode="decimal"></label>
+        <div class="row">
+          <div><label>Warning cooldown minutes<input name="cool_warn" inputmode="numeric"></label></div>
+          <div><label>Critical cooldown minutes<input name="cool_critical" inputmode="numeric"></label></div>
+        </div>
+        <button type="submit">Save thresholds</button>
+        <p class="hint" id="threshold-status"></p>
+      </form>
+    </details>
+  </section>
+  <section id="view-track" hidden>
+    <form class="card" id="track-form">
+      <h2>AMADEUS CSV</h2>
+      <p class="hint">Import a results CSV from AMADEUS. The program itself stays on the GPU machine.</p>
+      <label>CSV file<input id="csv-file" type="file" accept=".csv,text/csv"></label>
+      <label>Frames per second<input id="fps" type="number" min="1" step="1" value="30"></label>
+      <label>Millimeters per pixel<input id="mm" type="number" min="0.0001" step="any"></label>
+      <label>Crowding distance mm<input id="crowd" type="number" min="1" step="any" value="40"></label>
+      <button type="submit">Import and chart</button>
+      <p class="hint" id="track-status"></p>
+    </form>
+    <div id="track-charts"></div>
+  </section>
+</main>
+<nav class="tabs" id="tabs">
+  <button type="button" data-tab="now" aria-pressed="true">Now</button>
+  <button type="button" data-tab="history">History</button>
+  <button type="button" data-tab="camera">Camera</button>
+  <button type="button" data-tab="tests">Test kit</button>
+  <button type="button" data-tab="alerts">Alerts</button>
+  <button type="button" data-tab="track">Activity</button>
+</nav>
+<script>
+const state = { overview: null, tank: null, tab: "now", hours: 168, live: false, timer: null, shotTimer: null };
+
+function $(id) { return document.getElementById(id); }
+function el(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text != null) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const type = response.headers.get("content-type") || "";
+  const body = type.includes("json") ? await response.json() : await response.text();
+  if (!response.ok) {
+    const message = body && body.error ? body.error : response.statusText;
+    throw new Error(message);
+  }
+  return body;
+}
+function tank() {
+  return (state.overview.tanks || []).find((item) => item.id === state.tank) || state.overview.tanks[0];
+}
+function when(iso, tz) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(undefined, { timeZone: tz || "America/Los_Angeles", hour: "numeric", minute: "2-digit", month: "short", day: "numeric" });
+}
+function num(value, digits) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return Number(value).toFixed(digits);
+}
+function severityFor(kind) {
+  const open = (state.overview.alerts || []).filter((alert) => alert.tank_id === state.tank && alert.kind === kind && !alert.resolved_at && !alert.acked_at);
+  if (open.some((alert) => alert.severity === "critical")) return "critical";
+  if (open.length) return "warning";
+  const current = tank();
+  return current && current.online ? "ok" : "offline";
+}
+
+function render() {
+  const data = state.overview;
+  if (!data) return;
+  $("site-line").textContent = data.site + " · " + data.place;
+  const chips = $("tanks");
+  chips.replaceChildren();
+  for (const item of data.tanks) {
+    const button = el("button", item.name);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(item.id === state.tank));
+    button.onclick = () => { state.tank = item.id; render(); loadTab(); };
+    chips.append(button);
+  }
+  const critical = (data.alerts || []).filter((alert) => alert.severity === "critical" && !alert.resolved_at && !alert.acked_at);
+  const banner = $("banner");
+  if (critical.length) {
+    banner.hidden = false;
+    banner.textContent = critical.length + " critical alert" + (critical.length === 1 ? "" : "s") + ". Open Alerts.";
+  } else {
+    banner.hidden = true;
+  }
+  if (state.tab === "now") renderNow();
+  if (state.tab === "alerts") renderAlerts();
+}
+
+function renderNow() {
+  const current = tank();
+  const grid = $("now-grid");
+  grid.replaceChildren();
+  if (!current) {
+    grid.append(el("p", "No tanks are configured on this hub."));
+    return;
+  }
+  const reading = current.reading;
+  const specs = [
+    ["dissolved_oxygen", "Dissolved oxygen", "mg/L", 2],
+    ["temperature", "Temperature", "F", 1],
+    ["ph", "pH", "", 2],
+    ["water_level", "Water level", "", 0],
+  ];
+  for (const [kind, label, unit, digits] of specs) {
+    const card = el("div", null, "card");
+    card.append(el("h2", label));
+    const sensor = reading && reading[kind];
+    let shown = "—";
+    if (sensor && sensor.ok && sensor.value != null) {
+      shown = kind === "water_level" ? String(sensor.value).toUpperCase() : num(sensor.value, digits);
+    }
+    const value = el("p", shown, "value");
+    card.append(value);
+    if (unit) card.append(el("span", " " + unit, "unit"));
+    if (kind === "water_level" && sensor && sensor.level_cm != null) {
+      card.append(el("p", num(sensor.level_cm, 1) + " cm", "hint"));
+    }
+    const status = (current.status && current.status[kind]) || (!current.online ? "offline" : severityFor(kind));
+    const badge = { ok: "In band", warning: "Warning", critical: "Critical", offline: "Offline" }[status] || status;
+    card.append(el("div", badge, "state " + status));
+    grid.append(card);
+  }
+  const manual = current.manual || {};
+  const kit = el("div", null, "card wide");
+  kit.append(el("h2", "Latest test kit"));
+  const bits = ["tan_mg_l", "nitrite_mg_l", "nitrate_mg_l", "alkalinity_mg_l", "salinity_ppt"].map((key) => {
+    const row = manual[key];
+    return key.replace("_mg_l", "").replace("_ppt", "") + " " + (row ? row.value : "—");
+  });
+  kit.append(el("p", bits.join(" · ")));
+  grid.append(kit);
+  const stamp = reading ? when(reading.ts, state.overview.timezone) : "no readings yet";
+  $("now-meta").textContent = current.name + (current.volume_gal ? " · " + current.volume_gal + " gal" : "") + " · " + (current.online ? "node online" : "node offline") + " · " + stamp;
+}
+
+function chart(title, points, color, digits) {
+  const wrap = el("div", null, "card");
+  wrap.append(el("h2", title));
+  const usable = points.filter((point) => point.v != null && !Number.isNaN(point.v));
+  if (usable.length < 2) {
+    wrap.append(el("p", "Not enough points in this window.", "hint"));
+    return wrap;
+  }
+  const width = 320, height = 140, pad = 16;
+  const min = Math.min(...usable.map((point) => point.v));
+  const max = Math.max(...usable.map((point) => point.v));
+  const span = max - min || 1;
+  const coords = usable.map((point, index) => {
+    const x = pad + (index / (usable.length - 1)) * (width - pad * 2);
+    const y = height - pad - ((point.v - min) / span) * (height - pad * 2);
+    return x.toFixed(1) + "," + y.toFixed(1);
+  });
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+  svg.setAttribute("class", "chart");
+  const poly = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+  poly.setAttribute("fill", "none");
+  poly.setAttribute("stroke", color);
+  poly.setAttribute("stroke-width", "2");
+  poly.setAttribute("points", coords.join(" "));
+  svg.append(poly);
+  wrap.append(svg);
+  wrap.append(el("p", num(usable[usable.length - 1].v, digits) + " latest · " + num(min, digits) + " to " + num(max, digits), "hint"));
+  return wrap;
+}
+
+async function loadHistory() {
+  const box = $("charts");
+  box.replaceChildren(el("p", "Loading history…", "hint"));
+  let path = "/api/tanks/" + state.tank + "/history?hours=" + state.hours;
+  if (state.hours === "custom") {
+    const from = $("from").value;
+    const to = $("to").value;
+    if (!from || !to) {
+      box.replaceChildren(el("p", "Choose a start and end.", "hint"));
+      return;
+    }
+    path = "/api/tanks/" + state.tank + "/history?from=" + encodeURIComponent(new Date(from).toISOString()) + "&to=" + encodeURIComponent(new Date(to).toISOString());
+  }
+  try {
+    const data = await api(path);
+    const points = data.points || [];
+    box.replaceChildren(
+      chart("Dissolved oxygen mg/L", points.map((point) => ({ v: point.do_mg_l })), "#0c5c5c", 2),
+      chart("Temperature F", points.map((point) => ({ v: point.temp_f })), "#8a5a00", 1),
+      chart("pH", points.map((point) => ({ v: point.ph })), "#1d4e89", 2),
+      chart("Water level cm", points.map((point) => ({ v: point.level_cm })), "#3f6b2a", 1),
+    );
+  } catch (error) {
+    box.replaceChildren(el("p", error.message));
+  }
+}
+
+function setRange(hours) {
+  state.hours = hours;
+  $("custom-range").hidden = hours !== "custom";
+  for (const button of $("ranges").querySelectorAll("button")) {
+    button.setAttribute("aria-pressed", String(button.dataset.hours === String(hours)));
+  }
+  loadHistory();
+}
+
+async function loadClips() {
+  const data = await api("/api/tanks/" + state.tank + "/clips");
+  const box = $("clips");
+  box.replaceChildren();
+  if (!data.clips.length) {
+    box.append(el("p", "No clips yet.", "hint"));
+    return;
+  }
+  for (const clip of data.clips) {
+    const row = el("div", null, "clip");
+    const text = el("div");
+    text.append(el("strong", when(clip.started_at, state.overview.timezone)));
+    text.append(el("div", (clip.duration_s || "?") + "s · " + (clip.width || "?") + "x" + (clip.height || "?") + " · " + (clip.exposure || "fixed") + " exposure", "hint"));
+    const link = el("a", "MP4");
+    link.href = "/api/tanks/" + state.tank + "/clips/" + clip.id + "/file";
+    row.append(text, link);
+    box.append(row);
+  }
+}
+
+function showCamera() {
+  const image = $("shot");
+  if (state.live) {
+    image.src = "/api/tanks/" + state.tank + "/camera/stream.mjpg?t=" + Date.now();
+    return;
+  }
+  const refresh = () => {
+    if (state.tab === "camera" && !state.live) {
+      image.src = "/api/tanks/" + state.tank + "/camera/snapshot.jpg?t=" + Date.now();
+    }
+  };
+  refresh();
+  clearInterval(state.shotTimer);
+  state.shotTimer = setInterval(refresh, 4000);
+  loadClips().catch((error) => { $("clips").textContent = error.message; });
+}
+
+async function loadKit() {
+  const data = await api("/api/tanks/" + state.tank + "/manual");
+  const box = $("kit-log");
+  box.replaceChildren();
+  if (!data.logs.length) {
+    box.append(el("p", "No test-kit rows yet.", "hint"));
+    return;
+  }
+  const table = document.createElement("table");
+  const head = document.createElement("tr");
+  for (const label of ["When", "TAN", "NO2", "NO3", "Alk", "Salt"]) head.append(el("th", label));
+  table.append(head);
+  for (const row of data.logs.slice(0, 12)) {
+    const tr = document.createElement("tr");
+    for (const value of [when(row.ts, state.overview.timezone), row.tan_mg_l, row.nitrite_mg_l, row.nitrate_mg_l, row.alkalinity_mg_l, row.salinity_ppt]) {
+      tr.append(el("td", value == null ? "—" : String(value)));
+    }
+    table.append(tr);
+  }
+  box.append(table);
+}
+
+function renderAlerts() {
+  const box = $("alert-list");
+  box.replaceChildren();
+  const rows = (state.overview.alerts || []).filter((alert) => !state.tank || alert.tank_id === state.tank);
+  if (!rows.length) {
+    box.append(el("p", "No unacknowledged alerts for this tank.", "hint"));
+    return;
+  }
+  for (const alert of rows) {
+    const card = el("article", null, "card alert " + alert.severity);
+    card.append(el("h2", alert.severity + " · " + alert.kind));
+    card.append(el("p", alert.message));
+    const meta = el("p", when(alert.opened_at, state.overview.timezone) + (alert.resolved_at ? " · cleared" : ""), "hint");
+    card.append(meta);
+    const button = el("button", "Acknowledge");
+    button.type = "button";
+    button.onclick = async () => {
+      await api("/api/alerts/" + alert.id + "/ack", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ by: "dashboard" }) });
+      await refresh();
+    };
+    card.append(button);
+    box.append(card);
+  }
+}
+
+async function loadThresholds() {
+  const data = await api("/api/thresholds?tank=" + encodeURIComponent(state.tank));
+  const form = $("threshold-form");
+  const effective = data.effective;
+  form.do_warn.value = effective.do_mg_l.warn_below;
+  form.do_critical.value = effective.do_mg_l.critical_below;
+  form.temp_low.value = effective.temp_f.low;
+  form.temp_high.value = effective.temp_f.high;
+  form.temp_swing.value = effective.temp_f.swing_warn_above;
+  form.ph_low.value = effective.ph.low;
+  form.ph_high.value = effective.ph.high;
+  form.tan_warn.value = effective.tan_mg_l.warn_above;
+  form.tan_critical.value = effective.tan_mg_l.critical_above;
+  form.nitrite.value = effective.nitrite_mg_l.warn_above;
+  form.nitrate.value = effective.nitrate_mg_l.warn_above;
+  form.alk.value = effective.alkalinity_mg_l.warn_below;
+  form.cool_warn.value = effective.cooldown_s.warning / 60;
+  form.cool_critical.value = effective.cooldown_s.critical / 60;
+}
+
+function activityChart(title, samples, key, color, digits) {
+  return chart(title, samples.map((sample) => ({ v: sample[key] })), color, digits);
+}
+
+async function showImport(id) {
+  const data = await api("/api/tracking/" + id);
+  const summary = data.summary || {};
+  const box = $("track-charts");
+  const lead = el("div", null, "card");
+  lead.append(el("h2", data.filename || "Import"));
+  lead.append(el("p", "Animals " + (summary.animals ?? "—") + " · mean speed " + num(summary.mean_speed_mm_s, 1) + " mm/s · distance " + num(summary.total_distance_mm, 0) + " mm · median length " + num(summary.median_length_mm, 1) + " mm"));
+  lead.append(el("p", summary.length_note || "", "hint"));
+  box.replaceChildren(
+    lead,
+    activityChart("Mean speed mm/s", data.samples, "mean_speed_mm_s", "#0c5c5c", 1),
+    activityChart("Distance traveled mm", data.samples, "cum_distance_mm", "#1d4e89", 0),
+    activityChart("Nearest neighbor mm", data.samples, "mean_nn_mm", "#8a5a00", 1),
+    activityChart("Approximate body length mm", data.samples, "mean_length_mm", "#3f6b2a", 1),
+  );
+}
+
+async function loadTab() {
+  if (!state.tank) return;
+  if (state.tab === "history") loadHistory();
+  if (state.tab === "camera") showCamera();
+  if (state.tab === "tests") loadKit();
+  if (state.tab === "alerts") loadThresholds().catch((error) => { $("threshold-status").textContent = error.message; });
+  if (state.tab === "track") {
+    const current = tank();
+    if (current && current.mm_per_pixel && !$("mm").value) $("mm").value = current.mm_per_pixel;
+    const list = await api("/api/tanks/" + state.tank + "/tracking");
+    if (list.imports && list.imports[0]) showImport(list.imports[0].id);
+  }
+}
+
+async function refresh() {
+  state.overview = await api("/api/overview");
+  if (!state.tank && state.overview.tanks[0]) state.tank = state.overview.tanks[0].id;
+  render();
+}
+
+function showTab(name) {
+  state.tab = name;
+  clearInterval(state.shotTimer);
+  for (const id of ["now", "history", "camera", "tests", "alerts", "track"]) {
+    $("view-" + id).hidden = id !== name;
+  }
+  for (const button of $("tabs").querySelectorAll("button")) {
+    button.setAttribute("aria-pressed", String(button.dataset.tab === name));
+  }
+  loadTab();
+}
+
+$("tabs").onclick = (event) => {
+  const button = event.target.closest("button");
+  if (button) showTab(button.dataset.tab);
+};
+$("poll-now").onclick = async () => {
+  $("poll-now").disabled = true;
+  try {
+    await api("/api/poll", { method: "POST" });
+    await refresh();
+  } catch (error) {
+    $("now-meta").textContent = error.message;
+  } finally {
+    $("poll-now").disabled = false;
+  }
+};
+for (const [label, hours] of [["24 h", 24], ["7 days", 168], ["30 days", 720], ["Custom", "custom"]]) {
+  const button = el("button", label);
+  button.type = "button";
+  button.dataset.hours = String(hours);
+  button.onclick = () => setRange(hours);
+  $("ranges").append(button);
+}
+$("ranges").querySelector("button[data-hours='168']").setAttribute("aria-pressed", "true");
+$("from").onchange = () => state.hours === "custom" && loadHistory();
+$("to").onchange = () => state.hours === "custom" && loadHistory();
+$("live").onclick = () => { state.live = true; clearInterval(state.shotTimer); showCamera(); };
+$("stills").onclick = () => { state.live = false; showCamera(); };
+$("record").onclick = async () => {
+  $("record-status").textContent = "Recording on the tank node…";
+  try {
+    const clip = await api("/api/tanks/" + state.tank + "/clips", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ duration_s: Number($("clip-seconds").value) }),
+    });
+    $("record-status").textContent = "Saved " + clip.id;
+    await loadClips();
+  } catch (error) {
+    $("record-status").textContent = error.message;
+  }
+};
+$("kit-form").onsubmit = async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const payload = {};
+  for (const key of ["tan_mg_l", "nitrite_mg_l", "nitrate_mg_l", "alkalinity_mg_l", "salinity_ppt", "notes"]) {
+    payload[key] = form.elements[key].value;
+  }
+  try {
+    await api("/api/tanks/" + state.tank + "/manual", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    form.reset();
+    $("kit-status").textContent = "Saved.";
+    await refresh();
+    await loadKit();
+  } catch (error) {
+    $("kit-status").textContent = error.message;
+  }
+};
+$("threshold-form").onsubmit = async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const body = {
+    do_mg_l: { warn_below: Number(form.do_warn.value), critical_below: Number(form.do_critical.value) },
+    temp_f: { low: Number(form.temp_low.value), high: Number(form.temp_high.value), swing_warn_above: Number(form.temp_swing.value), swing_hours: 24 },
+    ph: { low: Number(form.ph_low.value), high: Number(form.ph_high.value) },
+    tan_mg_l: { warn_above: Number(form.tan_warn.value), critical_above: Number(form.tan_critical.value) },
+    nitrite_mg_l: { warn_above: Number(form.nitrite.value) },
+    nitrate_mg_l: { warn_above: Number(form.nitrate.value) },
+    alkalinity_mg_l: { warn_below: Number(form.alk.value) },
+    cooldown_s: { warning: Number(form.cool_warn.value) * 60, critical: Number(form.cool_critical.value) * 60 },
+  };
+  try {
+    await api("/api/thresholds?tank=" + encodeURIComponent(state.tank), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    $("threshold-status").textContent = "Saved for this tank.";
+    await refresh();
+  } catch (error) {
+    $("threshold-status").textContent = error.message;
+  }
+};
+$("track-form").onsubmit = async (event) => {
+  event.preventDefault();
+  const file = $("csv-file").files[0];
+  if (!file) {
+    $("track-status").textContent = "Choose a CSV file.";
+    return;
+  }
+  const csv = await file.text();
+  try {
+    const result = await api("/api/tanks/" + state.tank + "/tracking", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        csv,
+        filename: file.name,
+        fps: Number($("fps").value),
+        mm_per_pixel: Number($("mm").value),
+        crowding_mm: Number($("crowd").value),
+      }),
+    });
+    $("track-status").textContent = "Imported " + result.summary.animals + " animals.";
+    await showImport(result.id);
+  } catch (error) {
+    $("track-status").textContent = error.message;
+  }
+};
+
+refresh().then(loadTab).catch((error) => { $("now-meta").textContent = error.message; });
+state.timer = setInterval(() => { refresh().catch(() => {}); }, 8000);
+</script>
+</body>
+</html>

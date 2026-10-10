@@ -1,0 +1,16 @@
+[Unit]
+Description=Prawn Monitor tank node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=prawn
+WorkingDirectory=/opt/prawn-monitor
+Environment=PYTHONPATH=/opt/prawn-monitor/src
+ExecStart=/opt/prawn-monitor/.venv/bin/python -m prawn_monitor node --config /etc/prawn-monitor/node.json
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
