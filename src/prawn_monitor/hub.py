@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import threading
 import urllib.error
 import urllib.request
@@ -18,16 +19,43 @@ from typing import Any, Callable
 from prawn_monitor import __version__
 from prawn_monitor.alerts import PriorAlert, evaluate_conditions, plan_alert_actions
 from prawn_monitor.db import Database
+from prawn_monitor.harvest import (
+    BATCH_ID,
+    SIGNATURE,
+    SIGNER,
+    activity_from_imports,
+    anchor_source,
+    build_record,
+    canonical_dumps,
+    clean_notes,
+    clean_pounds,
+    fee_payer,
+    fetch_transaction,
+    local_window,
+    memo_for,
+    normalize_cluster,
+    pin_canonical_json,
+    public_harvest,
+    reject_secrets,
+    resolve_endpoint,
+    sha256_text,
+    transaction_slot,
+    verify_transaction,
+)
 from prawn_monitor.history import bucket_readings
 from prawn_monitor.httputil import HttpError, Response, Router, json_response, parse_json_body, query_value, serve
 from prawn_monitor.notify import deliver_alert
+from prawn_monitor.qrcode import qr_svg
+from prawn_monitor.shrimpcoin import describe as describe_shrimpcoin
 from prawn_monitor.thresholds import effective_thresholds
 from prawn_monitor.timeutil import parse_iso, to_iso, utc_now
 from prawn_monitor.tracking import analyze_tracks, parse_tracking_csv
+from prawn_monitor.verify_page import render_verify_page
 
 log = logging.getLogger("prawn.hub")
 
 _DASHBOARD = Path(__file__).with_name("dashboard.html")
+_STATIC = Path(__file__).with_name("static")
 
 
 def get_json(url: str, timeout: float) -> Any:
@@ -64,7 +92,14 @@ def sensors_from_row(row: dict[str, Any]) -> dict[str, Any]:
 class HubApp:
     max_body = 8 * 1024 * 1024
 
-    def __init__(self, config: dict[str, Any], db: Database | None = None, deliver: Callable | None = None):
+    def __init__(
+        self,
+        config: dict[str, Any],
+        db: Database | None = None,
+        deliver: Callable | None = None,
+        solana_fetch: Callable[[str, str], dict[str, Any] | None] | None = None,
+        ipfs_transport: Callable[[str, bytes, dict[str, str]], tuple[int, bytes]] | None = None,
+    ):
         self.config = config
         self.tanks = [dict(tank) for tank in config.get("tanks") or []]
         self.by_id = {tank["id"]: tank for tank in self.tanks}
@@ -78,6 +113,10 @@ class HubApp:
         self.place = config.get("place") or "Ukiah, CA"
         self.timezone = config.get("timezone") or "America/Los_Angeles"
         self.public_url = config.get("public_url") or ""
+        self.solana = dict(config.get("solana") or {})
+        self.ipfs = dict(config.get("ipfs") or {})
+        self.solana_fetch = solana_fetch
+        self.ipfs_transport = ipfs_transport
         self.cameras: dict[str, str] = {}
         self._stop = threading.Event()
         self._poller: threading.Thread | None = None
@@ -132,6 +171,15 @@ class HubApp:
         self.router.route("POST", "/api/tanks/{tank_id}/tracking")(self._tracking_post)
         self.router.route("GET", "/api/tanks/{tank_id}/tracking")(self._tracking_list)
         self.router.route("GET", "/api/tracking/{import_id}")(self._tracking_get)
+        self.router.route("GET", "/api/shrimpcoin")(self._shrimpcoin)
+        self.router.route("GET", "/api/harvests")(self._harvest_list)
+        self.router.route("POST", "/api/harvests")(self._harvest_create)
+        self.router.route("GET", "/api/harvests/{batch_id}")(self._harvest_get)
+        self.router.route("POST", "/api/harvests/{batch_id}/signature")(self._harvest_signature)
+        self.router.route("GET", "/api/harvests/{batch_id}/verification")(self._harvest_verification)
+        self.router.route("GET", "/verify/{batch_id}/qr.svg")(self._harvest_qr)
+        self.router.route("GET", "/verify/{batch_id}")(self._harvest_page)
+        self.router.route("GET", "/static/{name}")(self._static_file)
 
     def _dashboard(self, _params, _query, _body, _headers) -> Response:
         if not _DASHBOARD.is_file():
@@ -386,6 +434,242 @@ class HubApp:
         if len(row["samples"]) > 800:
             row["samples"] = bucket_series(row["samples"], 800)
         return json_response(row)
+
+    def _shrimpcoin(self, _params, _query, _body, _headers) -> Response:
+        return json_response(describe_shrimpcoin())
+
+    def _static_file(self, params, _query, _body, _headers) -> Response:
+        name = params["name"]
+        if "/" in name or name.startswith("."):
+            raise HttpError(404, "not found")
+        file = _STATIC / name
+        if not file.is_file():
+            raise HttpError(404, "not found")
+        content_type = "text/javascript; charset=utf-8" if name.endswith(".js") else "application/octet-stream"
+        return Response(body=file.read_bytes(), content_type=content_type)
+
+    def _harvest_list(self, _params, query, _body, _headers) -> Response:
+        tank_id = query_value(query, "tank")
+        if tank_id:
+            self._tank(tank_id)
+        base = self._public_base(_headers)
+        rows = [self._present_harvest(row, base) for row in self.db.list_harvests(tank_id)]
+        return json_response({"harvests": rows})
+
+    def _harvest_get(self, params, _query, _body, headers) -> Response:
+        return json_response(self._present_harvest(self._harvest_row(params["batch_id"]), self._public_base(headers)))
+
+    def _harvest_create(self, _params, _query, body, headers) -> Response:
+        payload = parse_json_body(body)
+        try:
+            reject_secrets(payload)
+        except ValueError as exc:
+            raise HttpError(400, str(exc)) from exc
+        batch_id = str(payload.get("batch_id") or "").strip()
+        if not BATCH_ID.fullmatch(batch_id):
+            raise HttpError(400, "batch id must be letters, numbers, dot, underscore, or hyphen")
+        tank = self._tank(str(payload.get("tank_id") or ""))
+        try:
+            stocking = str(payload.get("stocking_date") or "")
+            harvest_date = str(payload.get("harvest_date") or "")
+            period_start, period_end = local_window(stocking, harvest_date, self.timezone)
+            pounds = clean_pounds(payload.get("pounds"))
+            notes = clean_notes(payload.get("notes"))
+            cluster, rpc_url = resolve_endpoint(self.solana, payload.get("cluster"))
+        except ValueError as exc:
+            raise HttpError(400, str(exc)) from exc
+        include_activity = payload.get("include_activity", True)
+        if not isinstance(include_activity, bool):
+            raise HttpError(400, "include_activity must be true or false")
+        readings = self.db.readings_between(tank["id"], period_start, period_end)
+        manuals = self.db.manual_logs_between(tank["id"], period_start, period_end)
+        alerts = self.db.count_alerts_between(tank["id"], period_start, period_end)
+        activity = None
+        if include_activity:
+            imports = self.db.tracking_imports_between(tank["id"], period_start, period_end)
+            activity = activity_from_imports(imports, self.db.tracking_samples)
+        record = build_record(
+            batch_id=batch_id,
+            site=self.site,
+            place=self.place,
+            tank=tank,
+            stocking_date=stocking,
+            harvest_date=harvest_date,
+            period_start=period_start,
+            period_end=period_end,
+            pounds=pounds,
+            notes=notes,
+            readings=readings,
+            manual_logs=manuals,
+            alert_count=alerts,
+            limits=self.thresholds_for(tank["id"]),
+            activity=activity,
+        )
+        canonical = canonical_dumps(record)
+        digest = sha256_text(canonical)
+        pinned = pin_canonical_json(canonical, self.ipfs, self.ipfs_transport)
+        try:
+            memo = memo_for(batch_id, digest, pinned.cid)
+        except ValueError as exc:
+            raise HttpError(400, str(exc)) from exc
+        row = {
+            "batch_id": batch_id,
+            "tank_id": tank["id"],
+            "stocking_date": stocking,
+            "harvest_date": harvest_date,
+            "pounds": pounds,
+            "notes": notes,
+            "canonical_json": canonical,
+            "sha256": digest,
+            "ipfs_cid": pinned.cid,
+            "ipfs_error": None if pinned.status != "failed" else pinned.detail[:300],
+            "memo": memo,
+            "cluster": cluster,
+            "rpc_url": rpc_url,
+            "created_at": to_iso(utc_now()),
+        }
+        try:
+            self.db.insert_harvest(row)
+        except sqlite3.IntegrityError as exc:
+            raise HttpError(409, "batch id already exists") from exc
+        stored = self.db.get_harvest(batch_id)
+        body_out = self._present_harvest(stored, self._public_base(headers))
+        body_out["ipfs"] = pinned.as_dict()
+        return json_response(body_out, 201)
+
+    def _harvest_signature(self, params, _query, body, headers) -> Response:
+        payload = parse_json_body(body)
+        try:
+            reject_secrets(payload)
+        except ValueError as exc:
+            raise HttpError(400, str(exc)) from exc
+        row = self._harvest_row(params["batch_id"])
+        signature = str(payload.get("signature") or "").strip()
+        if not SIGNATURE.fullmatch(signature):
+            raise HttpError(400, "signature must be the Solana transaction signature")
+        if payload.get("cluster"):
+            try:
+                asked = normalize_cluster(str(payload.get("cluster")))
+            except ValueError as exc:
+                raise HttpError(400, str(exc)) from exc
+            if asked != row["cluster"]:
+                raise HttpError(400, "cluster does not match this batch")
+        signer = str(payload.get("signer") or "").strip() or None
+        if signer and not SIGNER.fullmatch(signer):
+            raise HttpError(400, "signer must be a public address")
+        if row.get("signature"):
+            if row["signature"] != signature:
+                raise HttpError(409, "this batch is already anchored with a different signature")
+            return json_response(self._present_harvest(row, self._public_base(headers)))
+        try:
+            tx = self._load_transaction(row["rpc_url"], signature)
+            checked = verify_transaction(row["memo"], tx)
+        except Exception as exc:
+            raise HttpError(502, f"could not read the Solana transaction: {exc}") from exc
+        if not checked["ok"]:
+            raise HttpError(400, checked["reason"])
+        self.db.anchor_harvest(
+            row["batch_id"],
+            signature=signature,
+            signer=signer or (fee_payer(tx) if tx else None),
+            slot=transaction_slot(tx) if tx else None,
+            anchored_at=to_iso(utc_now()),
+            source=anchor_source(payload.get("source")),
+        )
+        stored = self.db.get_harvest(row["batch_id"])
+        return json_response(self._present_harvest(stored, self._public_base(headers)))
+
+    def _harvest_verification(self, params, _query, _body, _headers) -> Response:
+        row = self._harvest_row(params["batch_id"])
+        digest_ok = sha256_text(row["canonical_json"]) == row["sha256"]
+        if not row.get("signature"):
+            return json_response(
+                {
+                    "ok": False,
+                    "anchored": False,
+                    "sha256_matches_record": digest_ok,
+                    "memo_matches": None,
+                    "reason": "not anchored yet",
+                    "signature": None,
+                    "cluster": row["cluster"],
+                    "solscan_url": None,
+                }
+            )
+        try:
+            tx = self._load_transaction(row["rpc_url"], row["signature"])
+            checked = verify_transaction(row["memo"], tx)
+        except Exception as exc:
+            return json_response(
+                {
+                    "ok": False,
+                    "anchored": True,
+                    "sha256_matches_record": digest_ok,
+                    "memo_matches": None,
+                    "reason": f"could not read the Solana transaction: {exc}",
+                    "signature": row["signature"],
+                    "cluster": row["cluster"],
+                    "solscan_url": public_harvest(row)["solscan_url"],
+                }
+            )
+        ok = bool(checked["ok"] and digest_ok)
+        reason = checked["reason"] if digest_ok else "stored hash does not match the canonical record"
+        return json_response(
+            {
+                "ok": ok,
+                "anchored": True,
+                "sha256_matches_record": digest_ok,
+                "memo_matches": checked["ok"],
+                "reason": reason,
+                "signature": row["signature"],
+                "cluster": row["cluster"],
+                "solscan_url": public_harvest(row)["solscan_url"],
+                "memos": checked.get("memos") or [],
+            }
+        )
+
+    def _harvest_page(self, params, _query, _body, headers) -> Response:
+        row = self._harvest_row(params["batch_id"])
+        base = self._public_base(headers)
+        presented = self._present_harvest(row, base)
+        page = render_verify_page(presented, presented["verify_url"])
+        return Response(body=page.encode("utf-8"), content_type="text/html; charset=utf-8")
+
+    def _harvest_qr(self, params, _query, _body, headers) -> Response:
+        row = self._harvest_row(params["batch_id"])
+        url = self._present_harvest(row, self._public_base(headers))["verify_url"]
+        try:
+            svg = qr_svg(url)
+        except ValueError as exc:
+            raise HttpError(400, str(exc)) from exc
+        return Response(body=svg.encode("utf-8"), content_type="image/svg+xml")
+
+    def _harvest_row(self, batch_id: str) -> dict[str, Any]:
+        row = self.db.get_harvest(batch_id)
+        if row is None:
+            raise HttpError(404, "unknown harvest")
+        return row
+
+    def _present_harvest(self, row: dict[str, Any] | None, base: str) -> dict[str, Any]:
+        if row is None:
+            raise HttpError(404, "unknown harvest")
+        body = public_harvest(row)
+        body["verify_url"] = f"{base}/verify/{row['batch_id']}"
+        body["cli_command"] = f"scripts/anchor_harvest.sh {row['batch_id']} --hub {base}"
+        return body
+
+    def _public_base(self, headers: Any) -> str:
+        configured = str(self.public_url or "").rstrip("/")
+        if configured:
+            return configured
+        host = ""
+        if headers is not None:
+            host = headers.get("Host") or ""
+        return "http://" + (host or "127.0.0.1")
+
+    def _load_transaction(self, rpc_url: str, signature: str) -> dict[str, Any] | None:
+        if self.solana_fetch is not None:
+            return self.solana_fetch(rpc_url, signature)
+        return fetch_transaction(rpc_url, signature)
 
     def poll_once(self) -> list[dict[str, Any]]:
         results = []

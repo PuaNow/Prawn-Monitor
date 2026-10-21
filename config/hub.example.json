@@ -8,6 +8,15 @@
   "poll_interval_s": 15,
   "timeout_s": 10,
   "public_url": "http://192.168.1.10:8080",
+  "solana": {
+    "cluster": "devnet",
+    "rpc_url": "https://api.devnet.solana.com"
+  },
+  "ipfs": {
+    "provider": "pinata",
+    "api_url": "https://api.pinata.cloud/pinning/pinFileToIPFS",
+    "api_token": ""
+  },
   "tanks": [
     {
       "id": "nursery",

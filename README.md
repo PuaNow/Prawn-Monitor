@@ -79,6 +79,14 @@ This is a decision aid for people who already know the tank. It is not a life-su
 
 Clip recording locks exposure and writes an MP4 plus a JSON sidecar (tank, time, resolution, frame rate, exposure, millimeters per pixel). Copy those files to the GPU machine and run [AMADEUS](https://amadeus.jpmyrmecol.com/) there. AMADEUS is AGPL-3.0-only and is not included in this repository. The import step reads the CSV from its `results/` folder. Recording notes for an RTX 4060 8 GB card are in [docs/amadeus.md](docs/amadeus.md).
 
+## Harvest traceability
+
+The Harvest tab builds a batch record for one tank: dates, pounds, notes, and a water-quality summary from the logs in that window. The hub hashes the canonical JSON with SHA-256. If an IPFS token is set, it pins those exact bytes. It does not pin when the token is empty.
+
+Anchoring is a Solana memo, `NCPP-harvest:<batchId>:<sha256>:<ipfs cid>`, signed by a wallet you control. Devnet is the default. Phantom is the signing path on the dashboard, including Phantom on a phone (open the page in Phantom's in-app browser). On the Mac where ShrimpCoin was created, `scripts/anchor_harvest.sh <batchId> --hub <url>` uses the Solana CLI's default keypair and posts only the signature back. The hub never reads a key. ShrimpCoin is not required for this. Details, the fee (0.000005 SOL), and the later redemption stub are in [docs/harvest.md](docs/harvest.md).
+
+Each batch has a public verify page and a QR code for a label or invoice.
+
 ## Node API
 
 The hub polls these. You can poll them too.
@@ -103,7 +111,7 @@ python3 -m venv .venv
 PYTHONPATH=src .venv/bin/pytest
 ```
 
-Alert boundaries, cooldown, acknowledgement, and escalation are tested without hardware. `tests/test_e2e.py` runs the simulated farm: two nodes, the hub, a critical oxygen alert, a test-kit entry, a JPEG, an MP4, and an AMADEUS CSV.
+Alert boundaries, cooldown, acknowledgement, and escalation are tested without hardware. `tests/test_e2e.py` runs the simulated farm: two nodes, the hub, a critical oxygen alert, a test-kit entry, a JPEG, an MP4, and an AMADEUS CSV. `tests/test_harvest.py` checks the canonical harvest hash, a batch built from simulated logs, a mocked Solana memo, and the CLI anchor script with a fake `solana` binary.
 
 ## Docs
 
@@ -112,6 +120,7 @@ Alert boundaries, cooldown, acknowledgement, and escalation are tested without h
 - [Wiring](docs/wiring.md)
 - [Calibration](docs/calibration.md)
 - [AMADEUS recording](docs/amadeus.md)
+- [Harvest traceability](docs/harvest.md)
 
 ## License
 

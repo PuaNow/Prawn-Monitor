@@ -22,7 +22,7 @@ prawn-monitor = "prawn_monitor.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-prawn_monitor = ["dashboard.html"]
+prawn_monitor = ["dashboard.html", "static/memo_tx.js"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

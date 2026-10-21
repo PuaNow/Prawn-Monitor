@@ -108,15 +108,19 @@
     padding: 4px;
     z-index: 2;
   }
+  nav.tabs { overflow-x: auto; }
   nav.tabs button {
-    flex: 1; border: 0; border-radius: 10px; background: transparent;
-    padding: 6px 2px; min-height: 48px; font-size: 0.72rem;
+    flex: 1 0 auto; border: 0; border-radius: 10px; background: transparent;
+    padding: 6px 8px; min-height: 48px; min-width: 52px; font-size: 0.68rem;
   }
   nav.tabs button[aria-pressed="true"] { background: var(--teal); color: white; }
   img.shot { width: 100%; border-radius: 12px; background: #123; min-height: 160px; }
   .clip { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
   details { margin-top: 12px; }
   .ranges button[aria-pressed="true"] { background: var(--teal); color: white; border-color: var(--teal); }
+  input[type="checkbox"] { width: auto; min-height: 0; }
+  pre.cmd { white-space: pre-wrap; word-break: break-all; background: #f7f3ec; padding: 10px; border-radius: 10px; font-size: 0.78rem; }
+  .check { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -220,6 +224,29 @@
     </form>
     <div id="track-charts"></div>
   </section>
+  <section id="view-harvest" hidden>
+    <form class="card" id="harvest-form">
+      <h2>Harvest batch</h2>
+      <p class="hint">Builds a water-quality record for this tank, hashes it, and prepares a Solana memo. You approve the transaction in Phantom, or run the command on the Mac that has your Solana CLI keypair. This hub never asks for a key.</p>
+      <label>Batch ID<input name="batch_id" id="batch-id" autocomplete="off" required></label>
+      <div class="row">
+        <div><label>Stocking date<input name="stocking_date" id="stocking-date" type="date" required></label></div>
+        <div><label>Harvest date<input name="harvest_date" id="harvest-date" type="date" required></label></div>
+      </div>
+      <label>Pounds harvested<input name="pounds" inputmode="decimal" step="any" min="0" required></label>
+      <label>Notes<textarea name="notes" maxlength="1000"></textarea></label>
+      <label class="check"><input name="include_activity" type="checkbox" checked> Include AMADEUS activity in the record</label>
+      <label>Solana cluster
+        <select name="cluster">
+          <option value="devnet" selected>Devnet</option>
+          <option value="mainnet">Mainnet</option>
+        </select>
+      </label>
+      <button type="submit">Build harvest record</button>
+      <p class="hint" id="harvest-status"></p>
+    </form>
+    <div id="harvest-list"></div>
+  </section>
 </main>
 <nav class="tabs" id="tabs">
   <button type="button" data-tab="now" aria-pressed="true">Now</button>
@@ -228,7 +255,9 @@
   <button type="button" data-tab="tests">Test kit</button>
   <button type="button" data-tab="alerts">Alerts</button>
   <button type="button" data-tab="track">Activity</button>
+  <button type="button" data-tab="harvest">Harvest</button>
 </nav>
+<script src="/static/memo_tx.js"></script>
 <script>
 const state = { overview: null, tank: null, tab: "now", hours: 168, live: false, timer: null, shotTimer: null };
 
@@ -546,6 +575,7 @@ async function loadTab() {
     const list = await api("/api/tanks/" + state.tank + "/tracking");
     if (list.imports && list.imports[0]) showImport(list.imports[0].id);
   }
+  if (state.tab === "harvest") loadHarvests();
 }
 
 async function refresh() {
@@ -557,7 +587,7 @@ async function refresh() {
 function showTab(name) {
   state.tab = name;
   clearInterval(state.shotTimer);
-  for (const id of ["now", "history", "camera", "tests", "alerts", "track"]) {
+  for (const id of ["now", "history", "camera", "tests", "alerts", "track", "harvest"]) {
     $("view-" + id).hidden = id !== name;
   }
   for (const button of $("tabs").querySelectorAll("button")) {
@@ -680,7 +710,179 @@ $("track-form").onsubmit = async (event) => {
   }
 };
 
-refresh().then(loadTab).catch((error) => { $("now-meta").textContent = error.message; });
+function suggestBatch() {
+  const input = $("batch-id");
+  if (!input || input.value || !state.tank) return;
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  input.value = "NCPP-" + day + "-" + state.tank;
+  const harvest = $("harvest-date");
+  const stocking = $("stocking-date");
+  if (harvest && !harvest.value) harvest.value = new Date().toISOString().slice(0, 10);
+  if (stocking && !stocking.value) {
+    const then = new Date();
+    then.setDate(then.getDate() - 60);
+    stocking.value = then.toISOString().slice(0, 10);
+  }
+}
+
+function harvestCard(batch) {
+  const card = el("div", null, "card");
+  card.style.marginTop = "10px";
+  card.append(el("h2", batch.batch_id));
+  const record = batch.record || {};
+  const quality = record.water_quality || {};
+  const fraction = quality.time_in_range && quality.time_in_range.fraction;
+  card.append(el("p", (record.tank_name || batch.tank_id) + " · " + (record.pounds || batch.pounds) + " lb · " + record.stocking_date + " to " + record.harvest_date));
+  card.append(el("p", "Alerts " + (quality.alert_count ?? "—") + " · time in range " + (fraction ? (Number(fraction) * 100).toFixed(1) + "%" : "—"), "hint"));
+  const metrics = quality.metrics || {};
+  for (const [key, label] of [["dissolved_oxygen_mg_l", "DO"], ["temperature_f", "Temp"], ["ph", "pH"], ["tan_mg_l", "TAN"], ["nitrite_mg_l", "Nitrite"], ["nitrate_mg_l", "Nitrate"], ["alkalinity_mg_l", "Alkalinity"]]) {
+    const metric = metrics[key];
+    const line = metric ? (label + " " + metric.min + " / " + metric.mean + " / " + metric.max + " " + metric.unit) : (label + " —");
+    card.append(el("p", line, "hint"));
+  }
+  if (record.activity && record.activity.imports) {
+    card.append(el("p", "Activity: " + record.activity.animals + " animals, " + record.activity.distance_mm + " mm, " + record.activity.mean_speed_mm_s + " mm/s", "hint"));
+  }
+  card.append(el("p", "SHA-256 " + batch.sha256, "hint"));
+  card.append(el("p", "IPFS " + (batch.ipfs_cid || batch.ipfs_status || "skipped"), "hint"));
+  card.append(el("p", batch.memo, "hint"));
+  if (batch.signature) {
+    card.append(el("p", "Anchored " + (batch.anchor_source || "") + " " + batch.signature));
+    if (batch.solscan_url) {
+      const link = el("a", "Solscan");
+      link.href = batch.solscan_url;
+      card.append(link);
+    }
+  } else {
+    const status = el("p", "", "hint");
+    status.dataset.role = "sign-status";
+    card.append(status);
+    const sign = el("button", "Sign with Phantom", "primary");
+    sign.type = "button";
+    sign.onclick = () => signHarvest(batch, card);
+    card.append(sign);
+    const phone = el("a", "Open in Phantom on this phone");
+    const pageUrl = location.origin + location.pathname + "#harvest";
+    phone.href = window.prawnMemoTx ? window.prawnMemoTx.phantomBrowseUrl(pageUrl, location.origin) : pageUrl;
+    phone.style.display = "block";
+    phone.style.marginTop = "8px";
+    card.append(phone);
+    card.append(el("p", "Phantom asks you to approve the memo. There is no auto-signing wallet.", "hint"));
+  }
+  card.append(el("p", "On the Mac with the Solana CLI, this uses your default keypair and only sends the signature back:", "hint"));
+  const pre = el("pre", batch.cli_command, "cmd");
+  card.append(pre);
+  const copy = el("button", "Copy command");
+  copy.type = "button";
+  copy.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(batch.cli_command);
+      copy.textContent = "Copied";
+    } catch (error) {
+      copy.textContent = "Select the command and copy it";
+    }
+  };
+  card.append(copy);
+  const verify = el("a", "Verify page");
+  verify.href = batch.verify_path;
+  card.append(verify);
+  const qr = document.createElement("img");
+  qr.className = "shot";
+  qr.alt = "QR code for " + batch.batch_id;
+  qr.src = batch.verify_path + "/qr.svg";
+  card.append(qr);
+  card.append(el("p", "ShrimpCoin is not required to anchor this record. Any Phantom wallet can sign the memo. Redeeming SHRMPCOIN for prawns is a later phase.", "hint"));
+  return card;
+}
+
+async function loadHarvests() {
+  suggestBatch();
+  const box = $("harvest-list");
+  box.replaceChildren(el("p", "Loading harvests…", "hint"));
+  try {
+    const data = await api("/api/harvests?tank=" + encodeURIComponent(state.tank));
+    box.replaceChildren();
+    if (!data.harvests.length) {
+      box.append(el("p", "No harvest batches for this tank yet.", "hint"));
+      return;
+    }
+    for (const batch of data.harvests) box.append(harvestCard(batch));
+  } catch (error) {
+    box.replaceChildren(el("p", error.message));
+  }
+}
+
+async function signHarvest(batch, card) {
+  const status = card.querySelector("[data-role='sign-status']") || card.appendChild(el("p", "", "hint"));
+  if (!window.prawnMemoTx) {
+    status.textContent = "The Phantom helper did not load.";
+    return;
+  }
+  const pageUrl = location.origin + location.pathname + "#harvest";
+  const plan = window.prawnMemoTx.planPhantomAction({
+    provider: window.prawnMemoTx.phantomProvider(),
+    userAgent: navigator.userAgent,
+    pageUrl: pageUrl,
+    origin: location.origin,
+  });
+  if (plan.type === "browse") {
+    location.href = plan.url;
+    return;
+  }
+  if (plan.type !== "sign") {
+    status.textContent = "Phantom is not in this browser. Install it, use Open in Phantom on a phone, or run the command on the Mac.";
+    return;
+  }
+  status.textContent = "Waiting for you to approve the memo in Phantom…";
+  try {
+    const signed = await window.prawnMemoTx.signMemoWithPhantom(window.prawnMemoTx.phantomProvider(), {
+      rpcUrl: batch.rpc_url,
+      memo: batch.memo,
+    });
+    await api("/api/harvests/" + encodeURIComponent(batch.batch_id) + "/signature", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ signature: signed.signature, signer: signed.signer, cluster: batch.cluster, source: "phantom" }),
+    });
+    status.textContent = "Anchored.";
+    await loadHarvests();
+  } catch (error) {
+    status.textContent = error.message || "Phantom did not sign the memo.";
+  }
+}
+
+$("harvest-form").onsubmit = async (event) => {
+  event.preventDefault();
+  const form = event.target;
+  const payload = {
+    batch_id: form.batch_id.value.trim(),
+    tank_id: state.tank,
+    stocking_date: form.stocking_date.value,
+    harvest_date: form.harvest_date.value,
+    pounds: form.pounds.value,
+    notes: form.notes.value,
+    include_activity: form.include_activity.checked,
+    cluster: form.cluster.value,
+  };
+  $("harvest-status").textContent = "Building the record…";
+  try {
+    const batch = await api("/api/harvests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    $("harvest-status").textContent = "Record " + batch.sha256.slice(0, 12) + "… is ready to sign.";
+    form.batch_id.value = "";
+    await loadHarvests();
+  } catch (error) {
+    $("harvest-status").textContent = error.message;
+  }
+};
+
+refresh().then(() => {
+  if (location.hash === "#harvest") showTab("harvest");
+  else loadTab();
+}).catch((error) => { $("now-meta").textContent = error.message; });
 state.timer = setInterval(() => { refresh().catch(() => {}); }, 8000);
 </script>
 </body>

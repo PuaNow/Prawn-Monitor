@@ -107,6 +107,28 @@ CREATE TABLE IF NOT EXISTS node_status (
   last_error TEXT,
   online INTEGER
 );
+CREATE TABLE IF NOT EXISTS harvests (
+  batch_id TEXT PRIMARY KEY,
+  tank_id TEXT NOT NULL,
+  stocking_date TEXT NOT NULL,
+  harvest_date TEXT NOT NULL,
+  pounds REAL,
+  notes TEXT,
+  canonical_json TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  ipfs_cid TEXT,
+  ipfs_error TEXT,
+  memo TEXT NOT NULL,
+  cluster TEXT NOT NULL,
+  rpc_url TEXT NOT NULL,
+  signature TEXT,
+  signer TEXT,
+  slot INTEGER,
+  anchored_at TEXT,
+  anchor_source TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_harvests_tank ON harvests(tank_id, created_at);
 """
 
 
@@ -566,3 +588,105 @@ class Database:
         item["summary"] = json.loads(item["summary"])
         item["samples"] = self.tracking_samples(import_id)
         return item
+
+    def manual_logs_between(self, tank_id: str, start: str, end: str) -> list[dict[str, Any]]:
+        with self.lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM manual_logs
+                WHERE tank_id=? AND ts>=? AND ts<=?
+                ORDER BY ts, id
+                """,
+                (tank_id, start, end),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def count_alerts_between(self, tank_id: str, start: str, end: str) -> int:
+        with self.lock:
+            row = self._conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM alerts
+                WHERE tank_id=? AND opened_at>=? AND opened_at<=?
+                """,
+                (tank_id, start, end),
+            ).fetchone()
+        return int(row["n"])
+
+    def tracking_imports_between(self, tank_id: str, start: str, end: str) -> list[dict[str, Any]]:
+        with self.lock:
+            rows = self._conn.execute(
+                """
+                SELECT id, tank_id, imported_at, filename, fps, mm_per_pixel,
+                       animal_count, summary
+                FROM tracking_imports
+                WHERE tank_id=? AND imported_at>=? AND imported_at<=?
+                ORDER BY id
+                """,
+                (tank_id, start, end),
+            ).fetchall()
+        out = []
+        for row in rows:
+            item = dict(row)
+            item["summary"] = json.loads(item["summary"])
+            out.append(item)
+        return out
+
+    def insert_harvest(self, row: dict[str, Any]) -> None:
+        with self.lock:
+            self._conn.execute(
+                """
+                INSERT INTO harvests (
+                  batch_id, tank_id, stocking_date, harvest_date, pounds, notes,
+                  canonical_json, sha256, ipfs_cid, ipfs_error, memo, cluster, rpc_url,
+                  signature, signer, slot, anchored_at, anchor_source, created_at
+                ) VALUES (
+                  :batch_id, :tank_id, :stocking_date, :harvest_date, :pounds, :notes,
+                  :canonical_json, :sha256, :ipfs_cid, :ipfs_error, :memo, :cluster, :rpc_url,
+                  NULL, NULL, NULL, NULL, NULL, :created_at
+                )
+                """,
+                row,
+            )
+            self._conn.commit()
+
+    def list_harvests(self, tank_id: str | None = None) -> list[dict[str, Any]]:
+        with self.lock:
+            if tank_id:
+                rows = self._conn.execute(
+                    "SELECT * FROM harvests WHERE tank_id=? ORDER BY created_at DESC, batch_id",
+                    (tank_id,),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM harvests ORDER BY created_at DESC, batch_id"
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_harvest(self, batch_id: str) -> dict[str, Any] | None:
+        with self.lock:
+            row = self._conn.execute(
+                "SELECT * FROM harvests WHERE batch_id=?",
+                (batch_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def anchor_harvest(
+        self,
+        batch_id: str,
+        *,
+        signature: str,
+        signer: str | None,
+        slot: int | None,
+        anchored_at: str,
+        source: str,
+    ) -> None:
+        with self.lock:
+            self._conn.execute(
+                """
+                UPDATE harvests
+                SET signature=?, signer=?, slot=?, anchored_at=?, anchor_source=?
+                WHERE batch_id=? AND signature IS NULL
+                """,
+                (signature, signer, slot, anchored_at, source, batch_id),
+            )
+            self._conn.commit()
