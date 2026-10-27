@@ -1,0 +1,26 @@
+# Optional override once USB probes and a camera are plugged in.
+# Native systemd is the simpler path on the reServer; see docs/reserver.md.
+# Edit device paths, then:
+#   docker compose -f docker-compose.yml -f docker-compose.hardware.yml up --build
+#
+# Uncomment only devices that exist on this machine. A missing path makes
+# Docker refuse to start the node.
+
+services:
+  node:
+    command:
+      - python
+      - -m
+      - prawn_monitor
+      - node
+      - --config
+      - /opt/prawn-monitor/config/node.reserver.usb.example.json
+    volumes:
+      - ./config/node.reserver.usb.example.json:/opt/prawn-monitor/config/node.reserver.usb.example.json:ro
+      - node-data:/opt/prawn-monitor/var
+    # devices:
+    #   - /dev/video0:/dev/video0
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    #   - /dev/ttyUSB1:/dev/ttyUSB1
+    #   - /dev/ttyUSB2:/dev/ttyUSB2
+    #   - /dev/ttyUSB3:/dev/ttyUSB3

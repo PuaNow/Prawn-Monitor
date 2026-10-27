@@ -1,0 +1,60 @@
+{
+  "host": "0.0.0.0",
+  "port": 8090,
+  "data_dir": "var/reserver/node",
+  "tank": {
+    "id": "nursery",
+    "name": "Nursery",
+    "volume_gal": 225,
+    "species": "Litopenaeus vannamei",
+    "site": "NorCal Premier Prawn, Ukiah CA"
+  },
+  "sensors": {
+    "mode": "usb",
+    "dissolved_oxygen": {
+      "driver": "atlas_uart",
+      "port": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_DO",
+      "baud": 9600,
+      "delay_s": 0.6
+    },
+    "ph": {
+      "driver": "atlas_uart",
+      "port": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_PH",
+      "baud": 9600,
+      "delay_s": 0.9
+    },
+    "temperature": {
+      "driver": "atlas_uart",
+      "port": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_RTD",
+      "baud": 9600,
+      "delay_s": 0.6
+    },
+    "water_level": {
+      "driver": "usb_line",
+      "port": "/dev/serial/by-id/usb-prawn-level",
+      "baud": 9600,
+      "query": "R",
+      "low_cm": 25,
+      "high_cm": 55
+    }
+  },
+  "camera": {
+    "id": "overhead",
+    "driver": "v4l2",
+    "device": "/dev/video0",
+    "input_format": "mjpeg",
+    "width": 1280,
+    "height": 720,
+    "fps": 15,
+    "mm_per_pixel": 0.4,
+    "exposure_us": 8000
+  },
+  "recording": {
+    "enabled": false,
+    "times": ["08:00", "16:00"],
+    "duration_s": 180,
+    "max_duration_s": 600,
+    "timezone": "America/Los_Angeles"
+  },
+  "compensation": {"salinity_ppt": 20, "pressure_kpa": 99.0}
+}

@@ -1,10 +1,20 @@
 # Parts list
 
-Prices are approximate retail in US dollars, checked in October 2026, before tax and shipping. Street prices for the Pi and camera move around. Confirm the manufacturer page before you order. One hub serves every tank. The parts below are for one tank node, plus the shared hub line at the end.
+Prices are approximate retail in US dollars, checked in October 2026, before tax and shipping. Street prices for the Pi and camera move around. Confirm the manufacturer page before you order. One hub serves every tank.
 
-The nursery is 225 gallons. The same node parts fit the next tank; only the mount and the millimeters-per-pixel number change.
+Phase 1 is one Seeed reServer for the nursery. The Raspberry Pi list is an extra tank, not a requirement. The nursery is 225 gallons. The same probe ideas fit the next tank; only the mount and the millimeters-per-pixel number change.
 
-## Shared, either chemistry build
+## Phase 1 host
+
+| Item | Approx. USD | Notes |
+| --- | ---: | --- |
+| Seeed reServer (ODYSSEY Intel, such as the X86J4125) | check Seeed | x86_64 Linux. Runs the hub and the nursery node. No GPU |
+| USB-serial adapters, 3.3 V | 15 each | One per Atlas EZO circuit in UART mode, or one bridge that prints the line protocol in [reserver.md](reserver.md) |
+| UVC camera, or an IP camera you already have | 30 | `v4l2` or `ip` driver. ffmpeg, not a GPU |
+
+Plug probes and the camera into USB. Do not plan on the ODYSSEY 40-pin header as if it were a Pi. Install steps are in [reserver.md](reserver.md).
+
+## Shared, either chemistry build on a Raspberry Pi node
 
 | Item | Approx. USD | Notes |
 | --- | ---: | --- |
@@ -52,12 +62,9 @@ DFRobot's own page for SEN0161-V2 says that probe is for lab use and drifts if i
 
 ## Hub
 
-| Item | Approx. USD | Notes |
-| --- | ---: | --- |
-| Shop PC you already have | 0 | Any always-on Linux machine on the LAN |
-| Or a second Pi 5, supply, and card | 100 | Same class of board as a node |
+The phase 1 hub is the reServer in the table above. A second always-on Linux machine, or a Pi, can still host the hub if you split them later (`sudo ./scripts/setup-hub.sh`). You do not need that split for the nursery.
 
-The RTX 4060 8 GB machine is not part of this bill. It runs AMADEUS, which is a separate install. See [amadeus.md](amadeus.md).
+The RTX 4060 8 GB machine is not part of this bill. It is phase 2: AMADEUS, which is a separate install. See [amadeus.md](amadeus.md). Moving the hub onto that PC is optional and later.
 
 ## Adding a tank
 

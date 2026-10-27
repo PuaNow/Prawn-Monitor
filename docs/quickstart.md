@@ -1,6 +1,6 @@
 # Simulated quick start
 
-You can run the whole farm on a laptop. Nothing here needs a Raspberry Pi, a probe, or a network route off the machine.
+On the farm, phase 1 is the Seeed reServer x86. Use [reserver.md](reserver.md) for that host: one local node, the hub, USB probes, and a camera. The steps below are the two-tank laptop demo. Nothing here needs a Raspberry Pi, a probe, a GPU, or a network route off the machine.
 
 ```bash
 git clone <this repo>

@@ -1,6 +1,8 @@
-# Recording for AMADEUS
+# Recording for AMADEUS (phase 2)
 
-[AMADEUS](https://amadeus.jpmyrmecol.com/) tracks animals in a video and writes a CSV. It is licensed AGPL-3.0-only. Install it yourself from the project site or from `https://github.com/jpmyrmecol/AMADEUS`. Prawn Monitor does not ship AMADEUS, does not link to it, and does not load its weights. The two programs meet only in files you carry between machines: an MP4 going out, a CSV coming back.
+Phase 2 is optional. Phase 1 on the Seeed reServer does not install AMADEUS, a GPU driver, or CUDA. Alerts, the dashboard, and the camera do not need this page. Come back when you want clip tracking.
+
+[AMADEUS](https://amadeus.jpmyrmecol.com/) tracks animals in a video and writes a CSV. It is licensed AGPL-3.0-only. Install it yourself from the project site or from `https://github.com/jpmyrmecol/AMADEUS`, on the GPU PC, not on the reServer. Prawn Monitor does not ship AMADEUS, does not link to it, and does not load its weights. The two programs meet only in files you carry between machines: an MP4 going out, a CSV coming back.
 
 The tracking PC for this farm is an NVIDIA GeForce RTX 4060 with 8 GB of VRAM. AMADEUS recommends 8 GB or more. That card meets the recommendation. Training still depends on resolution, animal count, and batch size. If AMADEUS runs out of memory, lower the training batch size in Advanced Tracking. That is the first check their manual lists for an out-of-memory error.
 
@@ -38,9 +40,10 @@ Train and analyze under the same camera, light, and water depth. A clip from a d
 
 ## Move files without the internet
 
-The Pi does not run the GPU. Copy the MP4 and the JSON to the 4060 machine on a USB stick or with `rsync` on the LAN:
+The reServer does not run the GPU, and neither does a Pi node. Copy the MP4 and the JSON to the 4060 machine on a USB stick or with `rsync` on the LAN. Phase 1 clips from the reServer are under `var/reserver/node/clips/` in the checkout (or the `data_dir` you set). A Pi node still uses its own clip directory:
 
 ```bash
+rsync -a reServer:/opt/prawn-monitor/var/reserver/node/clips/ ./clips/
 rsync -a pi@192.168.1.21:/var/lib/prawn-monitor/nursery/clips/ ./clips/
 ```
 

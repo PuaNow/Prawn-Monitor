@@ -99,3 +99,9 @@ A ruler on the tank floor is wrong if the animals cruise higher in the column. R
 ## Test kit
 
 The probes do not measure TAN, nitrite, nitrate, or alkalinity. Enter those on the Test kit tab. Alkalinity is mg/L as CaCO3. If the kit reports dKH, multiply by 17.9. The latest number for each parameter is the one the alerter uses, so a bad TAN stays alarming until a newer test comes back inside the limit.
+
+## USB probes on the reServer
+
+`atlas_uart` uses the same `op` values as the Atlas section above. Point `curl` at `http://127.0.0.1:8090` when the node is on the reServer, and use the `by-id` serial paths from [reserver.md](reserver.md). The EZO circuit still stores the calibration.
+
+`usb_line` has no calibration command. The bridge is the instrument. Confirm dissolved oxygen, pH, and temperature against the test kit, and confirm `level_cm` against a ruler. `low_cm` and `high_cm` in the node config are the alert lines, same as the ultrasonic section above.

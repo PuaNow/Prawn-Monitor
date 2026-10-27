@@ -1,8 +1,9 @@
 """Pluggable tank sensors.
 
-Simulated drivers run anywhere. Hardware drivers talk to I2C, 1-Wire, and GPIO
-when those stacks are present and stay quiet, with ``ok: false``, when they
-are not. A third driver can be dropped in by registering ``build``.
+Simulated drivers run anywhere. ``mode: usb`` is the reServer x86 path and
+speaks USB serial (see ``usb_serial``). Hardware drivers talk to I2C, 1-Wire,
+and GPIO on a Raspberry Pi when those stacks are present and stay quiet, with
+``ok: false``, when a probe is missing.
 """
 
 from __future__ import annotations
@@ -184,7 +185,10 @@ class SimulatedBank:
     def command(self, kind: str, op: str, body: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": False,
-            "error": "simulated mode has no probe to calibrate; set the driver to atlas or dfrobot on the Pi",
+            "error": (
+                "simulated mode has no probe to calibrate; set sensors.mode to usb "
+                "on the reServer, or atlas/dfrobot on a Raspberry Pi"
+            ),
         }
 
     def close(self) -> None:
@@ -234,13 +238,14 @@ class AtlasEzoDriver:
         transport: AtlasTransport | Any,
         salinity_ppt: float = 0.0,
         pressure_kpa: float = 101.325,
+        driver_name: str = "atlas_ezo",
     ):
         self.kind = kind
         self.unit = unit
         self.address = address
         self.delay_s = delay_s
         self.transport = transport
-        self.driver_name = "atlas_ezo"
+        self.driver_name = driver_name
         self.salinity_ppt = salinity_ppt
         self.pressure_kpa = pressure_kpa
         self._last_temp_c: float | None = None
@@ -646,13 +651,21 @@ class _Gpio:
 
 
 class SensorGroup:
-    def __init__(self, drivers: dict[str, Any], simulated: SimulatedBank | None = None):
+    def __init__(
+        self,
+        drivers: dict[str, Any],
+        simulated: SimulatedBank | None = None,
+        combined: Any = None,
+    ):
         self.drivers = drivers
         self.simulated = simulated
+        self.combined = combined
 
     def readings(self) -> dict[str, dict[str, Any]]:
         if self.simulated is not None:
             return self.simulated.readings()
+        if self.combined is not None:
+            return self.combined.readings()
         temp = self.drivers["temperature"].read()
         temp_c = None
         if temp.get("ok") and temp.get("value") is not None:
@@ -672,6 +685,8 @@ class SensorGroup:
     def command(self, kind: str, op: str, body: dict[str, Any]) -> dict[str, Any]:
         if self.simulated is not None:
             return self.simulated.command(kind, op, body)
+        if self.combined is not None:
+            return self.combined.command(kind, op, body)
         driver = self.drivers.get(kind)
         if driver is None:
             return {"ok": False, "error": f"no driver for {kind}"}
@@ -683,6 +698,8 @@ class SensorGroup:
                 {"kind": kind, "driver": "simulated"}
                 for kind in ("dissolved_oxygen", "temperature", "ph", "water_level")
             ]
+        if self.combined is not None:
+            return self.combined.inventory()
         return [
             {"kind": kind, "driver": getattr(driver, "driver_name", driver.__class__.__name__)}
             for kind, driver in self.drivers.items()
@@ -691,6 +708,9 @@ class SensorGroup:
     def close(self) -> None:
         if self.simulated is not None:
             self.simulated.close()
+            return
+        if self.combined is not None:
+            self.combined.close()
             return
         for driver in self.drivers.values():
             close = getattr(driver, "close", None)
@@ -712,6 +732,10 @@ def build_sensors(config: dict[str, Any], data_dir: Path) -> SensorGroup:
     mode = sensors_cfg.get("mode", "simulated")
     if mode == "simulated":
         return SensorGroup({}, SimulatedBank())
+    if mode == "usb":
+        from prawn_monitor.usb_serial import build_usb_sensors
+
+        return build_usb_sensors(config, data_dir)
     compensation = dict(config.get("compensation") or {})
     salinity = float(compensation.get("salinity_ppt", 20.0))
     pressure = float(compensation.get("pressure_kpa", 99.0))

@@ -1,6 +1,8 @@
 # Wiring
 
-One Raspberry Pi per tank. The Pi, the ADC, and the camera stay dry. Probes go through cable glands. Power the Pi from its own supply on a GFCI outlet, not from a pump relay.
+Phase 1 on the Seeed reServer does not use this page. USB probes and a USB or IP camera are in [reserver.md](reserver.md). The reServer's 40-pin header is not Raspberry Pi GPIO. Leave the Pi config for a Pi.
+
+This page is one Raspberry Pi per extra tank. The Pi, the ADC, and the camera stay dry. Probes go through cable glands. Power the Pi from its own supply on a GFCI outlet, not from a pump relay.
 
 BCM numbers below match `config/node.atlas.example.json` and `config/node.dfrobot.example.json`.
 

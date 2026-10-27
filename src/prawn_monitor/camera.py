@@ -1,4 +1,10 @@
-"""Overhead camera: simulated frames, USB, Pi camera, MJPEG, and fixed-exposure MP4."""
+"""Overhead camera: simulated frames, V4L2, IP, OpenCV USB, Pi camera, MJPEG, and MP4.
+
+Phase 1 on the reServer uses ``v4l2`` (a USB UVC camera via ffmpeg) or ``ip``
+(an RTSP or HTTP camera via ffmpeg). Neither needs OpenCV or a GPU.
+``usb`` remains the OpenCV driver. ``picamera2`` remains the Raspberry Pi
+camera. Simulated frames are what the demo and CI use.
+"""
 
 from __future__ import annotations
 
@@ -398,11 +404,167 @@ def stream_mjpeg(wfile: Any, frame_source: Callable[[], bytes], width: int, heig
         proc.wait(timeout=5)
 
 
+def ffmpeg_camera_command(config: dict[str, Any], ffmpeg: str | None = None) -> list[str]:
+    """ffmpeg argv that writes a raw RGB24 stream of exactly width x height."""
+    binary = ffmpeg or ffmpeg_bin() or "ffmpeg"
+    width = int(config.get("width", 1280))
+    height = int(config.get("height", 720))
+    fps = config.get("fps", 15)
+    driver = config.get("driver")
+    cmd = [binary, "-hide_banner", "-loglevel", "error"]
+    if driver == "v4l2":
+        device = config.get("device", "/dev/video0")
+        if isinstance(device, int) or (isinstance(device, str) and str(device).isdigit()):
+            device = f"/dev/video{device}"
+        cmd += ["-f", "v4l2"]
+        fmt = config.get("input_format")
+        if fmt:
+            cmd += ["-input_format", str(fmt)]
+        cmd += ["-framerate", str(fps), "-video_size", f"{width}x{height}", "-i", str(device)]
+    elif driver == "ip":
+        url = config.get("url")
+        if not url:
+            raise ValueError("ip camera requires camera.url")
+        extra = config.get("input_args")
+        if extra is None:
+            if str(url).lower().startswith("rtsp://"):
+                cmd += ["-rtsp_transport", "tcp"]
+        else:
+            if isinstance(extra, str):
+                raise ValueError("camera.input_args must be a list of ffmpeg arguments")
+            cmd += [str(item) for item in extra]
+        cmd += ["-i", str(url)]
+    else:
+        raise ValueError(f"ffmpeg camera command does not support driver {driver}")
+    cmd += [
+        "-an",
+        "-vf",
+        f"scale={width}:{height},format=rgb24",
+        "-r",
+        str(fps),
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "pipe:1",
+    ]
+    return cmd
+
+
+class FfmpegCamera:
+    """USB (V4L2) or IP camera grabbed by ffmpeg. The device opens on the first frame."""
+
+    def __init__(self, config: dict[str, Any], driver_name: str):
+        self.config = dict(config)
+        self.config["driver"] = driver_name
+        self.driver_name = driver_name
+        self.width = int(config.get("width", 1280))
+        self.height = int(config.get("height", 720))
+        if self.width % 2 or self.height % 2:
+            raise ValueError("frame width and height must be even")
+        self.fps = float(config.get("fps", 15))
+        self.mm_per_pixel = float(config.get("mm_per_pixel", 0.4))
+        self.exposure_us = int(config.get("exposure_us", 8000))
+        self._proc: subprocess.Popen[bytes] | None = None
+        self._drain: threading.Thread | None = None
+        self._err = bytearray()
+        self._lock = threading.Lock()
+
+    def describe(self) -> dict[str, Any]:
+        info: dict[str, Any] = {
+            "driver": self.driver_name,
+            "exposure": "manual-requested",
+            "auto_exposure": None,
+            "exposure_us": self.exposure_us,
+            "width": self.width,
+            "height": self.height,
+            "fps": self.fps,
+            "mm_per_pixel": self.mm_per_pixel,
+            "role": "overhead",
+            "note": "Lock exposure in the camera or with v4l2-ctl. Phase 1 does not run AMADEUS.",
+        }
+        if self.driver_name == "v4l2":
+            info["device"] = str(self.config.get("device", "/dev/video0"))
+        else:
+            info["url"] = str(self.config.get("url", ""))
+        return info
+
+    def _ensure(self) -> None:
+        if self._proc is not None and self._proc.poll() is None:
+            return
+        self._stop_locked()
+        binary = ffmpeg_bin()
+        if not binary:
+            raise RuntimeError("ffmpeg is required for the v4l2 and ip cameras")
+        proc = subprocess.Popen(
+            ffmpeg_camera_command(self.config, ffmpeg=binary),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self._proc = proc
+        self._err = bytearray()
+
+        def drain() -> None:
+            assert proc.stderr is not None
+            try:
+                while True:
+                    chunk = proc.stderr.read(1024)
+                    if not chunk:
+                        return
+                    self._err.extend(chunk)
+                    if len(self._err) > 4000:
+                        del self._err[:-2000]
+            except OSError:
+                return
+
+        self._drain = threading.Thread(target=drain, name="camera-stderr", daemon=True)
+        self._drain.start()
+
+    def _stderr_text(self) -> str:
+        if self._drain is not None:
+            self._drain.join(timeout=0.5)
+        return bytes(self._err).decode("utf-8", "replace")[-400:]
+
+    def frame_rgb(self) -> bytes:
+        with self._lock:
+            self._ensure()
+            assert self._proc is not None and self._proc.stdout is not None
+            need = self.width * self.height * 3
+            buf = bytearray()
+            while len(buf) < need:
+                chunk = self._proc.stdout.read(need - len(buf))
+                if not chunk:
+                    detail = self._stderr_text()
+                    self._stop_locked()
+                    raise RuntimeError(f"camera stream ended: {detail}".rstrip())
+                buf += chunk
+            return bytes(buf)
+
+    def close(self) -> None:
+        with self._lock:
+            self._stop_locked()
+
+    def _stop_locked(self) -> None:
+        proc = self._proc
+        self._proc = None
+        if proc is None:
+            return
+        if proc.poll() is None:
+            proc.kill()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            return
+
+
 def build_camera(config: dict[str, Any], label: str) -> Any:
     camera_cfg = dict(config.get("camera") or {})
     driver = camera_cfg.get("driver", "simulated")
     if driver == "simulated":
         return SimulatedCamera(camera_cfg, label=label)
+    if driver in ("v4l2", "ip"):
+        return FfmpegCamera(camera_cfg, driver)
     if driver == "usb":
         return UsbCamera(camera_cfg)
     if driver == "picamera2":

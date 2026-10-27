@@ -1,0 +1,19 @@
+[Unit]
+Description=Prawn Monitor phase 1 (hub and nursery node on this reServer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+SupplementaryGroups=dialout video
+WorkingDirectory=@ROOT@
+Environment=PYTHONPATH=@ROOT@/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=@ROOT@/scripts/reserver-up.sh --hardware
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
