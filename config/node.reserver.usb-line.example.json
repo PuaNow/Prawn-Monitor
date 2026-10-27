@@ -1,0 +1,38 @@
+{
+  "host": "0.0.0.0",
+  "port": 8090,
+  "data_dir": "var/reserver/node",
+  "tank": {
+    "id": "nursery",
+    "name": "Nursery",
+    "volume_gal": 225,
+    "species": "Litopenaeus vannamei",
+    "site": "NorCal Premier Prawn, Ukiah CA"
+  },
+  "sensors": {
+    "mode": "usb",
+    "usb_line": {
+      "port": "/dev/serial/by-id/usb-prawn-bridge",
+      "baud": 9600,
+      "query": "R",
+      "timeout_s": 2
+    },
+    "water_level": {"low_cm": 25, "high_cm": 55}
+  },
+  "camera": {
+    "id": "overhead",
+    "driver": "v4l2",
+    "device": "/dev/video0",
+    "input_format": "mjpeg",
+    "width": 1280,
+    "height": 720,
+    "fps": 15,
+    "mm_per_pixel": 0.4,
+    "exposure_us": 8000
+  },
+  "recording": {
+    "enabled": false,
+    "timezone": "America/Los_Angeles"
+  },
+  "compensation": {"salinity_ppt": 20, "pressure_kpa": 99.0}
+}

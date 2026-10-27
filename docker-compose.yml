@@ -1,0 +1,60 @@
+# Phase 1 bring-up with no probes plugged in.
+# Dashboard: http://127.0.0.1:8080
+# Logs: docker compose logs -f
+# This file does not request a GPU and does not install AMADEUS.
+
+services:
+  node:
+    build: .
+    command:
+      - python
+      - -m
+      - prawn_monitor
+      - node
+      - --config
+      - /opt/prawn-monitor/config/node.reserver.compose.json
+    volumes:
+      - node-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:8090/health", timeout=3)
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  hub:
+    build: .
+    command:
+      - python
+      - -m
+      - prawn_monitor
+      - hub
+      - --config
+      - /opt/prawn-monitor/config/hub.reserver.compose.json
+    ports:
+      - "8080:8080"
+    depends_on:
+      node:
+        condition: service_healthy
+    volumes:
+      - hub-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:8080/health", timeout=3)
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 8s
+    restart: unless-stopped
+
+volumes:
+  node-data:
+  hub-data:

@@ -1,8 +1,10 @@
-"""Tank node: sensors and an overhead camera on one Raspberry Pi.
+"""Tank node: sensors and an overhead camera.
 
-The hub polls this process over the LAN. The node keeps its own clip files and
-a machine-readable inventory so another tank can be added without changing the
-hub's code, the same shape Sync Tank uses for tank ownership.
+Phase 1 runs this on the Seeed reServer next to the hub. A Raspberry Pi on
+the LAN is still a node. The hub polls this process. The node keeps its own
+clip files and a machine-readable inventory so another tank can be added
+without changing the hub's code, the same shape Sync Tank uses for tank
+ownership.
 """
 
 from __future__ import annotations
@@ -208,7 +210,10 @@ class NodeApp:
                 "file": f"/camera/{self.camera_id}/clips/{clip_id}/file",
                 "codec": "libx264",
                 "container": "mp4",
-                "notes": "Fixed overhead camera with exposure locked, for AMADEUS tracking.",
+                "notes": (
+                    "Fixed overhead camera with exposure locked. "
+                    "Phase 2 can import this clip into AMADEUS; phase 1 does not."
+                ),
                 "software": f"prawn-monitor {__version__}",
                 **described,
             }
